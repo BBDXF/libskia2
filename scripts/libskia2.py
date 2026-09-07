@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -68,6 +69,27 @@ def log(msg: str) -> None:
 def run(cmd: list[str], cwd: Path | None = None, env: dict | None = None) -> None:
     log("$ " + " ".join(str(c) for c in cmd))
     subprocess.run([str(c) for c in cmd], cwd=cwd, env=env, check=True)
+
+
+def run_with_retry(
+    cmd: list[str], cwd: Path | None = None, env: dict | None = None, attempts: int = 3
+) -> None:
+    """给必然会抖的网络步骤用。
+
+    git-sync-deps 会多线程从 chromium.googlesource.com 拉几十个仓库，
+    任何一个连接失败它就整体报 "Thread failure detected"。它自身是幂等的
+    （已同步到位的依赖会跳过），所以重试是安全的。
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            run(cmd, cwd=cwd, env=env)
+            return
+        except subprocess.CalledProcessError:
+            if attempt == attempts:
+                raise
+            delay = 15 * attempt
+            log(f"第 {attempt}/{attempts} 次失败，{delay}s 后重试")
+            time.sleep(delay)
 
 
 def is_windows(target: str) -> bool:
@@ -179,11 +201,11 @@ def cmd_sync(_target: str) -> None:
 
     # 优先按 SHA 精确取，失败则退回按分支取（某些 git server 不允许 fetch 任意 SHA）。
     try:
-        run(["git", "fetch", "--depth", "1", "origin", pin["SKIA_COMMIT"]], cwd=SKIA)
+        run_with_retry(["git", "fetch", "--depth", "1", "origin", pin["SKIA_COMMIT"]], cwd=SKIA)
         run(["git", "checkout", "-q", "FETCH_HEAD"], cwd=SKIA)
     except subprocess.CalledProcessError:
         log("按 SHA fetch 失败，退回按分支取")
-        run(["git", "fetch", "--depth", "1", "origin", pin["SKIA_REF"]], cwd=SKIA)
+        run_with_retry(["git", "fetch", "--depth", "1", "origin", pin["SKIA_REF"]], cwd=SKIA)
         run(["git", "checkout", "-q", "FETCH_HEAD"], cwd=SKIA)
 
     actual = subprocess.run(
@@ -197,9 +219,9 @@ def cmd_sync(_target: str) -> None:
     log(f"Skia commit 校验通过: {actual}")
 
     env = dict(os.environ, GIT_SYNC_DEPS_SKIP_EMSDK="true")
-    run([sys.executable, "tools/git-sync-deps"], cwd=SKIA, env=env)
-    run([sys.executable, "bin/fetch-gn"], cwd=SKIA)
-    run([sys.executable, "bin/fetch-ninja"], cwd=SKIA)
+    run_with_retry([sys.executable, "tools/git-sync-deps"], cwd=SKIA, env=env)
+    run_with_retry([sys.executable, "bin/fetch-gn"], cwd=SKIA)
+    run_with_retry([sys.executable, "bin/fetch-ninja"], cwd=SKIA)
 
 
 # --------------------------------------------------------------------------- gen
