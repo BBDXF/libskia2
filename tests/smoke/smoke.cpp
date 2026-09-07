@@ -22,11 +22,13 @@
 #include "include/core/SkPaint.h"
 #include "include/core/SkPoint.h"
 #include "include/core/SkRRect.h"
+#include "include/core/SkSpan.h"
 #include "include/core/SkStream.h"
 #include "include/core/SkSurface.h"
-#include "include/effects/SkGradientShader.h"
+#include "include/core/SkTileMode.h"
+#include "include/effects/SkGradient.h"
 #include "include/encode/SkPngEncoder.h"
-#include "include/private/base/SkTArray.h"
+#include "include/private/SkTArray.h"
 #include "modules/skparagraph/include/FontCollection.h"
 #include "modules/skparagraph/include/Paragraph.h"
 #include "modules/skparagraph/include/ParagraphBuilder.h"
@@ -91,10 +93,12 @@ void testRasterAndCodec(const char* outPath) {
     canvas->drawRRect(SkRRect::MakeRectXY(SkRect::MakeXYWH(44, 40, 232, 120), 20, 20), shadow);
 
     const SkPoint pts[2] = {{40, 30}, {280, 150}};
-    const SkColor colors[2] = {SK_ColorBLUE, SK_ColorMAGENTA};
+    const SkColor4f colors[2] = {SkColors::kBlue, SkColors::kMagenta};
+    SkGradient::Colors gradientColors(SkSpan<const SkColor4f>(colors, 2), SkTileMode::kClamp);
+    SkGradient gradient(gradientColors, SkGradient::Interpolation{});
     SkPaint fill;
     fill.setAntiAlias(true);
-    fill.setShader(SkGradientShader::MakeLinear(pts, colors, nullptr, 2, SkTileMode::kClamp));
+    fill.setShader(SkShaders::LinearGradient(pts, gradient));
     canvas->drawRRect(SkRRect::MakeRectXY(SkRect::MakeXYWH(40, 30, 232, 120), 20, 20), fill);
 
     SkPixmap pixmap;

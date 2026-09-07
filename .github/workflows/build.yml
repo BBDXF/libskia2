@@ -89,7 +89,8 @@ jobs:
 
       # 验证闸门：拿刚打出来的包，按消费方的方式 find_package + 链接 + 实跑。
       # 这里覆盖 grapheme / CJK 断行 / 词边界 / BiDi —— 即 libgrapheme 方案是否够用。
-      - name: 冒烟测试
+      - name: 冒烟测试 (Linux)
+        if: runner.os == 'Linux'
         shell: bash
         env:
           LIBSKIA2_VERSION: ${{ steps.ver.outputs.version }}
@@ -99,25 +100,43 @@ jobs:
                 -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_PREFIX_PATH="$pkg"
           cmake --build build/smoke
-          ./build/smoke/libskia2_smoke "$PWD/dist/smoke-${{ matrix.target }}.png" \
-            || ./build/smoke/Release/libskia2_smoke.exe "$PWD/dist/smoke-${{ matrix.target }}.png"
+          ./build/smoke/libskia2_smoke "$PWD/dist/smoke-${{ matrix.target }}.png"
 
+      # Windows 上不用 Ninja：runner 的默认 shell 没有 MSVC 环境，cmake 找不到 cl.exe。
+      # Skia 自身的构建不受影响 —— gn 生成的 ninja 文件是按绝对路径调 cl.exe 的。
+      - name: 冒烟测试 (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          LIBSKIA2_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          $pkg = "$PWD/dist/libskia2-$env:LIBSKIA2_VERSION-${{ matrix.target }}"
+          cmake -S tests/smoke -B build/smoke -A x64 -DCMAKE_PREFIX_PATH="$pkg"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          cmake --build build/smoke --config Release
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & ".\build\smoke\Release\libskia2_smoke.exe" "$PWD\dist\smoke-${{ matrix.target }}.png"
+          exit $LASTEXITCODE
+
+      # 即使冒烟测试失败也要出体积数据和产物 —— 那正是排查时最需要的东西。
       - name: 报告体积
+        if: always()
         shell: bash
         run: |
           echo "### ${{ matrix.target }} 体积" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          ls -lh dist/*.tar.gz >> "$GITHUB_STEP_SUMMARY"
+          ls -lh dist/*.tar.gz 2>/dev/null >> "$GITHUB_STEP_SUMMARY" || true
           echo "--- 静态库 ---" >> "$GITHUB_STEP_SUMMARY"
           ls -lh externals/skia/out/${{ matrix.target }}/*.a \
                  externals/skia/out/${{ matrix.target }}/*.lib 2>/dev/null \
             >> "$GITHUB_STEP_SUMMARY" || true
           echo "--- 冒烟测试二进制（链接后的真实体积基线）---" >> "$GITHUB_STEP_SUMMARY"
-          find build/smoke -name 'libskia2_smoke*' -type f -exec ls -lh {} \; \
-            >> "$GITHUB_STEP_SUMMARY"
+          find build/smoke -name 'libskia2_smoke*' -type f -exec ls -lh {} \; 2>/dev/null \
+            >> "$GITHUB_STEP_SUMMARY" || true
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: libskia2-${{ matrix.target }}
           path: |
@@ -125,6 +144,7 @@ jobs:
             dist/*.sha256
             dist/smoke-*.png
           retention-days: 14
+          if-no-files-found: warn
 
   release:
     name: 发布 Release

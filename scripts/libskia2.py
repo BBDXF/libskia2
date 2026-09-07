@@ -28,6 +28,12 @@ ROOT = Path(__file__).resolve().parent.parent
 SKIA = ROOT / "externals" / "skia"
 CONFIG = ROOT / "config"
 
+# Windows 上 Python 的 stdout 默认走 cp1252，输出中文会直接抛 UnicodeEncodeError。
+# 必须在任何 log() 之前完成切换。
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 TARGETS = ("linux-x64", "windows-x64-msvc")
 
 # GN 目标 -> 产物基名。产物文件名在 Unix 上是 lib<name>.a，Windows 上是 <name>.lib。
