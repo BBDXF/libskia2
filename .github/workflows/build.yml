@@ -131,7 +131,7 @@ jobs:
             ls -lh externals/skia/out/${{ matrix.target }}/*.a \
                    externals/skia/out/${{ matrix.target }}/*.lib 2>/dev/null || true
             echo "--- 冒烟测试二进制（链接后的真实体积基线）---"
-            find build/smoke -name 'libskia2_smoke' -o -name 'libskia2_smoke.exe' \
+            find build/smoke \( -name 'libskia2_smoke' -o -name 'libskia2_smoke.exe' \) \
               -type f -exec ls -lh {} \; 2>/dev/null || true
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
