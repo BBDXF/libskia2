@@ -123,17 +123,18 @@ jobs:
         if: always()
         shell: bash
         run: |
-          echo "### ${{ matrix.target }} 体积" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          ls -lh dist/*.tar.gz 2>/dev/null >> "$GITHUB_STEP_SUMMARY" || true
-          echo "--- 静态库 ---" >> "$GITHUB_STEP_SUMMARY"
-          ls -lh externals/skia/out/${{ matrix.target }}/*.a \
-                 externals/skia/out/${{ matrix.target }}/*.lib 2>/dev/null \
-            >> "$GITHUB_STEP_SUMMARY" || true
-          echo "--- 冒烟测试二进制（链接后的真实体积基线）---" >> "$GITHUB_STEP_SUMMARY"
-          find build/smoke -name 'libskia2_smoke*' -type f -exec ls -lh {} \; 2>/dev/null \
-            >> "$GITHUB_STEP_SUMMARY" || true
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### ${{ matrix.target }} 体积"
+            echo '```'
+            ls -lh dist/*.tar.gz 2>/dev/null || true
+            echo "--- 静态库 ---"
+            ls -lh externals/skia/out/${{ matrix.target }}/*.a \
+                   externals/skia/out/${{ matrix.target }}/*.lib 2>/dev/null || true
+            echo "--- 冒烟测试二进制（链接后的真实体积基线）---"
+            find build/smoke -name 'libskia2_smoke' -o -name 'libskia2_smoke.exe' \
+              -type f -exec ls -lh {} \; 2>/dev/null || true
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         if: always()

@@ -82,6 +82,13 @@ set_target_properties(skia2::skia2 PROPERTIES
 # Skia 的构建期设定必须与消费方一致，否则表现为链接错误或运行期怪异行为。
 # 逐条依据见 doc/customization-analysis.md §2.G。
 if(MSVC)
+  # /utf-8 —— 把源码与执行字符集都设为 UTF-8。
+  # 不加的话 MSVC 的执行字符集是系统 ANSI 代码页（简中机器上是 936，英文是 1252），
+  # 非 ASCII 的窄字符串字面量会被静默转码成错误字节再传进 Skia。
+  # Skia 自身就是带 /utf-8 编译的（gn/skia/BUILD.gn），它的 API 全程 UTF-8，
+  # 消费方必须一致，否则表现为"中文/emoji 传进去就乱"这类极难定位的问题。
+  set_property(TARGET skia2::skia2 APPEND PROPERTY INTERFACE_COMPILE_OPTIONS /utf-8)
+
   # Skia 以 _HAS_EXCEPTIONS=0 编译（gn/skia/BUILD.gn 硬编码，不是 GN arg）。
   # 该宏改变 MSVC STL 头的行为，跨 TU 不一致即 ODR 违规。
   # 传播它意味着宿主应用在 Windows 上同样是无异常的 —— 这是已知的尖锐边缘，
