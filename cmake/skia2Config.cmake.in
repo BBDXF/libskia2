@@ -1,0 +1,100 @@
+# skia2Config.cmake —— 由 scripts/libskia2.py 在打包时生成
+#
+# 消费方只需要：
+#     find_package(skia2 REQUIRED)
+#     target_link_libraries(my_gui PRIVATE skia2::skia2)
+#
+# 链接顺序、系统库、include 路径、以及 ABI 约束全部在这里声明好。
+# 这正是 rust-skia 之流的预编译产物没做的事 —— 那些只丢给你一堆 .a，
+# ABI 靠人肉对齐、链接顺序靠试错。
+
+cmake_minimum_required(VERSION 3.24)
+
+set(SKIA2_VERSION "@LIBSKIA2_VERSION@")
+set(SKIA2_TARGET  "@LIBSKIA2_TARGET@")
+
+get_filename_component(_skia2_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
+set(SKIA2_INCLUDE_DIR "${_skia2_prefix}/include/skia")
+set(_skia2_libdir     "${_skia2_prefix}/lib")
+
+if(NOT EXISTS "${SKIA2_INCLUDE_DIR}/include/core/SkCanvas.h")
+  message(FATAL_ERROR "skia2: 头文件包不完整，找不到 ${SKIA2_INCLUDE_DIR}/include/core/SkCanvas.h")
+endif()
+
+if(WIN32)
+  set(_skia2_prefix_str "")
+  set(_skia2_suffix ".lib")
+else()
+  set(_skia2_prefix_str "lib")
+  set(_skia2_suffix ".a")
+endif()
+
+function(_skia2_add_lib name)
+  set(_path "${_skia2_libdir}/${_skia2_prefix_str}${name}${_skia2_suffix}")
+  if(NOT EXISTS "${_path}")
+    message(FATAL_ERROR "skia2: 缺少静态库 ${_path}")
+  endif()
+  add_library(skia2::${name} STATIC IMPORTED)
+  set_target_properties(skia2::${name} PROPERTIES IMPORTED_LOCATION "${_path}")
+endfunction()
+
+foreach(_lib skia skshaper skparagraph skunicode_core skunicode_libgrapheme svg skresources)
+  _skia2_add_lib(${_lib})
+endforeach()
+
+# 依赖图。声明出来之后链接顺序交给 CMake 拓扑排序，消费方不用手写，
+# 也不需要 --start-group/--end-group。
+# 依据 doc/gui-framework-profile.md §3.4。
+set_property(TARGET skia2::skshaper              APPEND PROPERTY INTERFACE_LINK_LIBRARIES skia2::skia)
+set_property(TARGET skia2::skunicode_core        APPEND PROPERTY INTERFACE_LINK_LIBRARIES skia2::skia)
+set_property(TARGET skia2::skunicode_libgrapheme APPEND PROPERTY INTERFACE_LINK_LIBRARIES skia2::skunicode_core)
+set_property(TARGET skia2::skresources           APPEND PROPERTY INTERFACE_LINK_LIBRARIES skia2::skia)
+set_property(TARGET skia2::skparagraph           APPEND PROPERTY INTERFACE_LINK_LIBRARIES
+             skia2::skshaper skia2::skunicode_libgrapheme)
+set_property(TARGET skia2::svg                   APPEND PROPERTY INTERFACE_LINK_LIBRARIES
+             skia2::skresources skia2::skshaper skia2::skunicode_libgrapheme)
+
+# 系统库。第三方依赖（zlib/expat/libpng/libwebp/libjpeg-turbo/harfbuzz/freetype/
+# libgrapheme/icu_bidi/wuffs/skcms）全部编译进 libskia.a，不在这里出现。
+if(WIN32)
+  # GN 里显式声明的只有 opengl32（skia_use_gl=true 必带）。
+  # 其余是 DirectWrite / COM 一组，Skia 的 GN 没有列出，由本文件补齐。
+  # 全是系统 import 库，多列无害。
+  set_property(TARGET skia2::skia APPEND PROPERTY INTERFACE_LINK_LIBRARIES
+               opengl32 user32 gdi32 ole32 oleaut32 advapi32 shell32 uuid dwrite usp10)
+else()
+  find_package(Threads REQUIRED)
+  # fontconfig 是唯一逃不掉的外部依赖 —— Skia 从不 vendor 它
+  # （third_party/BUILD.gn 里只有 libs=["fontconfig"]）。
+  find_library(SKIA2_FONTCONFIG_LIBRARY NAMES fontconfig REQUIRED)
+  set_property(TARGET skia2::skia APPEND PROPERTY INTERFACE_LINK_LIBRARIES
+               "${SKIA2_FONTCONFIG_LIBRARY}" Threads::Threads ${CMAKE_DL_LIBS} m)
+endif()
+
+add_library(skia2::skia2 INTERFACE IMPORTED)
+set_target_properties(skia2::skia2 PROPERTIES
+  INTERFACE_INCLUDE_DIRECTORIES "${SKIA2_INCLUDE_DIR}"
+  INTERFACE_LINK_LIBRARIES      "skia2::skparagraph;skia2::svg;skia2::skia"
+  INTERFACE_COMPILE_FEATURES    "cxx_std_20"
+)
+
+# ---- ABI 约束 ----
+# Skia 的构建期设定必须与消费方一致，否则表现为链接错误或运行期怪异行为。
+# 逐条依据见 doc/customization-analysis.md §2.G。
+if(MSVC)
+  # Skia 以 _HAS_EXCEPTIONS=0 编译（gn/skia/BUILD.gn 硬编码，不是 GN arg）。
+  # 该宏改变 MSVC STL 头的行为，跨 TU 不一致即 ODR 违规。
+  # 传播它意味着宿主应用在 Windows 上同样是无异常的 —— 这是已知的尖锐边缘，
+  # 要改必须重建 libskia2（消费方侧去掉这个定义只会把问题藏起来）。
+  set_property(TARGET skia2::skia2 APPEND PROPERTY INTERFACE_COMPILE_DEFINITIONS
+               _HAS_EXCEPTIONS=0 NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
+# 刻意不传播的两项：
+#   -fno-rtti / -GR-  : 消费方自己的 dynamic_cast 不受影响，只是不能对 Skia 类型用
+#   -fno-exceptions   : 仅影响 Skia 自身代码是否生成展开表，不改变 libstdc++ ABI
+
+unset(_skia2_prefix)
+unset(_skia2_libdir)
+unset(_skia2_prefix_str)
+unset(_skia2_suffix)

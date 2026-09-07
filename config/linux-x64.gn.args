@@ -1,0 +1,24 @@
+# linux-x64 追加 args
+
+target_os="linux"
+target_cpu="x64"
+cc="clang"
+cxx="clang++"
+ar="ar"
+
+# 关键：两者都 false 时 Skia 编入 GrGLMakeNativeInterface_none.cpp，
+# 不链接任何 GL 库，GL 函数指针由调用方在运行时通过 proc loader 提供。
+# 结果是一套二进制同时能跑 X11 与 Wayland。
+# 见 doc/gui-framework-profile.md §2.2。
+skia_use_x11=false
+skia_use_egl=false
+
+# 字体：freetype 编译进 libskia.a；fontconfig 是唯一逃不掉的系统库
+# （third_party/BUILD.gn 只有 libs=["fontconfig"]，Skia 从不 vendor 它）。
+skia_use_freetype=true
+skia_use_fontconfig=true
+skia_enable_fontmgr_fontconfig=true
+skia_enable_fontmgr_custom_directory=true
+skia_enable_fontmgr_custom_embedded=true
+
+extra_cflags=["-ffunction-sections","-fdata-sections"]

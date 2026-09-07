@@ -1,0 +1,256 @@
+================================================================================
+                    LIBSKIA2 BUILD CUSTOMIZATION REFERENCE
+                    Quick Decision Surface Index
+================================================================================
+
+This is a CONDENSED index pointing to the authoritative document:
+  → SKIA_BUILD_CUSTOMIZATION_MAP.md (519 lines, comprehensive)
+
+================================================================================
+CRITICAL DECISIONS FOR libskia2 CUSTOM BUILDS
+================================================================================
+
+1. GPU BACKEND (Pick 1 or more for each platform)
+   ├─ Ganesh (Skia's stable rasterizer)
+   │  └─ Args: skia_enable_ganesh=true [DEFAULT]
+   │     Impact: +5-10MB, HIGH performance, CRITICAL
+   │     Constraint: requires is_component_build=false if using skia_enable_tools
+   │
+   ├─ Graphite (new experimental backend)
+   │  └─ Args: skia_enable_graphite=false [DEFAULT]
+   │     Impact: +3-8MB, experimental
+   │
+   ├─ OpenGL
+   │  └─ Args: skia_use_gl=true [DEFAULT except Fuchsia]
+   │     Impact: +2-5MB
+   │
+   ├─ Metal (Apple)
+   │  └─ Args: skia_use_metal=false [DEFAULT]
+   │     Impact: platform-specific
+   │
+   ├─ Vulkan
+   │  └─ Args: skia_use_vulkan=platform-dependent
+   │     Android (ndk_api≥24): true
+   │     Fuchsia: true
+   │     Other: false
+   │     Impact: +3-6MB
+   │
+   ├─ Direct3D 12 (Windows)
+   │  └─ Args: skia_use_direct3d=false [DEFAULT]
+   │     Impact: +4MB
+   │
+   └─ ANGLE (D3D11→GLES translator)
+      └─ Args: skia_use_angle=false [DEFAULT]
+         Constraint: requires skia_gl_standard="gles"
+         Impact: +3MB
+
+2. IMAGE CODECS (Enable/Disable per format)
+   ├─ JPEG
+   │  ├─ Decode: skia_use_libjpeg_turbo_decode=true [DEFAULT]
+   │  ├─ Encode: skia_use_libjpeg_turbo_encode=true [DEFAULT]
+   │  └─ Block: skia_use_no_jpeg_encode=true (if needed)
+   │
+   ├─ PNG
+   │  ├─ Decode: skia_use_libpng_decode=true [DEFAULT]
+   │  ├─ Encode: skia_use_libpng_encode=true [DEFAULT]
+   │  └─ Block: skia_use_no_png_encode=true (if needed)
+   │
+   ├─ WebP
+   │  ├─ Decode: skia_use_libwebp_decode=true [DEFAULT]
+   │  ├─ Encode: skia_use_libwebp_encode=!is_wasm [DEFAULT; OFF on WASM]
+   │  └─ Block: skia_use_no_webp_encode=true (if needed)
+   │
+   ├─ GIF: skia_use_wuffs=true [DEFAULT; +200KB]
+   ├─ BMP/WBMP: Always ON (hardcoded)
+   ├─ RAW/DNG: skia_use_dng_sdk=derived (requires JPEG+zlib; +300KB)
+   ├─ AVIF: skia_use_libavif=false [DEFAULT; +500KB if enabled]
+   ├─ JPEG XL: skia_use_libjxl_decode=false [DEFAULT; +700KB if enabled]
+   └─ HEIF/H.265: skia_use_libheif=is_skia_dev_build [DEFAULT dev-only; +400KB]
+
+3. TEXT RENDERING & UNICODE (Interrelated)
+   ├─ HarfBuzz (text shaping)
+   │  └─ Args: skia_use_harfbuzz=true [DEFAULT]
+   │     Impact: +2MB, CRITICAL for advanced text
+   │
+   ├─ FreeType (TrueType/OpenType rasterizer)
+   │  └─ Args: skia_use_freetype=platform-dependent
+   │     Android/Fuchsia/Linux/WASM: true [DEFAULT]
+   │     Impact: +600KB
+   │
+   ├─ Unicode/Bidi Strategy (Pick ONE):
+   │  ├─ Full ICU (embedded data)
+   │  │  └─ Args: skia_use_icu=true [DEFAULT]
+   │  │     Impact: +8-15MB
+   │  │     Capabilities: Bidi ✓, Line Break ✓, Grapheme ✓, Word Break ✓
+   │  │
+   │  ├─ Full ICU (external icudtl.dat)
+   │  │  └─ Args: skia_use_icu=true + skia_use_runtime_icu=true
+   │  │     Impact: +3-5MB + separate data file
+   │  │     Platforms: Android, Linux only
+   │  │
+   │  ├─ Client-provided ICU
+   │  │  └─ Args: skia_use_client_icu=true
+   │  │     Impact: 0 bytes (caller supplies)
+   │  │     Constraint: App must provide SkUnicode::Make() implementation
+   │  │
+   │  ├─ ICU4X (Rust subset, newer)
+   │  │  └─ Args: skia_use_icu4x=true
+   │  │     Impact: +2-4MB
+   │  │     Capabilities: Bidi ✓, Line Break (partial), Grapheme (limited)
+   │  │
+   │  └─ libgrapheme (grapheme clusters only)
+   │     └─ Args: skia_use_libgrapheme=true
+   │        Impact: +300KB
+   │        Capabilities: Only grapheme cluster detection
+   │
+   └─ Font Manager (Auto-selected; ONE primary):
+      ├─ System fonts (platform-specific)
+      │  ├─ Android: skia_enable_fontmgr_android=true
+      │  ├─ macOS/iOS: skia_use_fonthost_mac=true
+      │  ├─ Linux: skia_enable_fontmgr_fontconfig=true
+      │  └─ Windows: skia_enable_fontmgr_win=true
+      │
+      ├─ Custom directory: skia_enable_fontmgr_custom_directory=true
+      ├─ Custom embedded: skia_enable_fontmgr_custom_embedded=true
+      └─ Empty (headless): skia_enable_fontmgr_empty=true
+
+4. PDF & SVG RENDERING
+   ├─ PDF: skia_enable_pdf=!is_wasm [DEFAULT except WASM; +2MB]
+   └─ SVG: skia_enable_svg=!is_component_build [DEFAULT unless DLL; +500KB]
+
+5. MODULE TARGETS (Optional, typically bundled)
+   ├─ skshaper (text shaping abstractions)
+   │  └─ Args: skia_enable_skshaper=true [DEFAULT; auto-gated by deps]
+   │     Impact: +2MB
+   │
+   ├─ skparagraph (paragraph layout)
+   │  └─ Args: skia_enable_skparagraph=true [DEFAULT; requires skshaper]
+   │     Impact: +800KB
+   │
+   ├─ skottie (Lottie animation)
+   │  └─ Args: skia_enable_skottie=!(is_win && is_component_build) [DEFAULT]
+   │     Impact: +1.5MB
+   │
+   └─ svg (SVG rendering)
+      └─ Args: skia_enable_svg=!is_component_build
+         Impact: +500KB
+
+6. TOOLCHAIN & ABI REQUIREMENTS (HARDCODED; cannot override)
+   ├─ C++ Standard: C++17 (both MSVC and Clang/GCC)
+   ├─ Visibility: -fvisibility=hidden -fvisibility-inlines-hidden (Unix)
+   ├─ RTTI: -fno-rtti (except ASAN builds)
+   ├─ Exceptions: -fno-exceptions (Unix); /EHsc implicit (MSVC)
+   ├─ libcxx mode: Default (safe mode optional via skia_use_safe_libcxx=true)
+   └─ CONSUMERS MUST MATCH THESE SETTINGS
+
+7. BUILD MODE & SIZE
+   ├─ Debug: is_debug=true [DEFAULT in dev builds]
+   ├─ Release: is_debug=false [for production]
+   ├─ Size optimization: skia_enable_optimize_size=true
+   │  └─ Constraint: requires is_debug=false
+   │     Impact: -20-30% size
+   │
+   └─ Static linking: is_component_build=false [DEFAULT for libskia2]
+
+8. BUILDING & MERGING
+   ├─ GN generation: gn gen out/Release --args='...'
+   ├─ Ninja build: ninja -C out/Release
+   ├─ Output: Multiple .a files (per module)
+   └─ Merging to single fat lib:
+      ├─ Method 1 (portable): ar MRI script
+      ├─ Method 2 (official): python3 tools/merge_static_libs.py
+      ├─ Method 3 (macOS): libtool -static
+      └─ Method 4 (Clang): llvm-ar
+
+9. DEPENDENCY FETCHING
+   ├─ Fetch all deps: ./tools/git-sync-deps
+   ├─ Minimal sync: Comment unwanted entries in DEPS
+   ├─ GN in: buildtools/gn (auto-fetched)
+   └─ Ninja in: buildtools/ninja (auto-fetched)
+
+10. PLATFORM PROFILES (Pre-configured combinations)
+    ├─ Linux Desktop:   GL=true, Vulkan=false, freetype/fontconfig
+    ├─ macOS:           GL=true, Metal=true, fonthost_mac=true, arm64/x64
+    ├─ iOS:             GLES=true (gl_standard="gles"), Metal=true, fonthost_mac=true
+    ├─ Android:         GLES=true, Vulkan=true (api≥24), fontmgr_android=true
+    ├─ Windows:         GL=true, D3D=true (optional), fontmgr_win=true
+    └─ WebAssembly:     WebGL=true, no PDF, no tools, minimal codecs
+
+================================================================================
+MINIMAL LIBSKIA2 BUILD (embedded, <5MB)
+================================================================================
+
+Build command:
+  gn gen out/minimal --args='
+    is_official_build=true
+    is_debug=false
+    is_component_build=false
+    skia_enable_ganesh=false
+    skia_use_gl=false
+    skia_use_vulkan=false
+    skia_enable_pdf=false
+    skia_enable_svg=false
+    skia_enable_skottie=false
+    skia_use_libjpeg_turbo_decode=false
+    skia_use_libpng_decode=false
+    skia_use_libwebp_decode=false
+    skia_use_harfbuzz=false
+    skia_use_icu=false
+    skia_use_freetype=false
+    skia_enable_fontmgr_empty=true
+    skia_enable_tools=false
+    extra_cflags="-Os"
+  '
+
+Result: ~2-3 MB (CPU rasterization only, no GPU, no advanced text)
+
+================================================================================
+TYPICAL DESKTOP LIBSKIA2 BUILD (~20-30MB)
+================================================================================
+
+Build command:
+  gn gen out/desktop --args='
+    is_official_build=true
+    is_debug=false
+    is_component_build=false
+    skia_enable_ganesh=true
+    skia_use_gl=true
+    skia_enable_pdf=true
+    skia_enable_svg=true
+    skia_enable_skottie=true
+    skia_enable_skshaper=true
+    skia_enable_skparagraph=true
+    skia_use_libjpeg_turbo_decode=true
+    skia_use_libjpeg_turbo_encode=true
+    skia_use_libpng_decode=true
+    skia_use_libpng_encode=true
+    skia_use_libwebp_decode=true
+    skia_use_libwebp_encode=true
+    skia_use_harfbuzz=true
+    skia_use_icu=true
+    skia_use_freetype=true
+    skia_use_fontconfig=true
+    skia_enable_tools=false
+  '
+
+Result: ~20-30 MB (full features, all image codecs, GPU, advanced text)
+
+================================================================================
+AUTHORITATIVE SOURCE
+================================================================================
+
+For all details with precise file locations and line numbers:
+  → See: SKIA_BUILD_CUSTOMIZATION_MAP.md
+
+Key source files in google/skia:
+  - gn/skia.gni (ALL GN args defaults, lines 11-198)
+  - gn/skia/BUILD.gn (compiler flags, visibility/ABI settings)
+  - gn/toolchain/BUILD.gn (toolchain args)
+  - modules/*/BUILD.gn (module gating)
+  - BUILD.gn (codec matrix, lines 1100-1410)
+  - DEPS (dependency list)
+  - tools/merge_static_libs.py (fat lib merging)
+  - tools/git-sync-deps (dependency syncing)
+
+================================================================================
+End of Reference

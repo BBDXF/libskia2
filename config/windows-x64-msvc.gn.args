@@ -1,0 +1,21 @@
+# windows-x64-msvc 追加 args
+#
+# 注意：win_vc / win_toolchain_version / win_sdk / win_sdk_version 这四项
+# Skia 不做任何自动探测（gn/BUILDCONFIG.gn 的默认值是空串），
+# 必须显式传入。由 scripts/libskia2.py 的 discover_msvc() 在构建时注入，
+# 不写在本文件里 —— 它们是机器相关的，不该进版本库。
+
+target_os="win"
+target_cpu="x64"
+
+# 字体：DirectWrite。freetype 在 Windows 上不需要。
+skia_use_freetype=false
+skia_enable_fontmgr_win=true
+skia_enable_fontmgr_win_gdi=false
+skia_enable_winuwp=false
+
+# Skia 的 GN 全程不传 /MD 或 /MT，cl.exe 会落到默认的 /MT（静态 CRT）。
+# 绝大多数 Windows 应用是 /MD，强制宿主改 /MT 不现实，所以这里显式指定。
+# 这是一次性决策：改它等于要求所有消费方同步改。
+# 见 doc/customization-analysis.md §2.G。
+extra_cflags=["/MD"]

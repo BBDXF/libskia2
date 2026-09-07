@@ -1,0 +1,80 @@
+# libskia2 公共 GN args —— 自绘 GUI 框架档
+#
+# 语法：每行一个 `key=value`，`#` 起始为注释，空行忽略。
+# 依据见 doc/gui-framework-profile.md §3.1。所有默认值均实测自 google/skia@chrome/m153。
+
+# ---- 构建形态 ----
+is_official_build=true
+is_debug=false
+is_component_build=false
+skia_enable_tools=false
+
+# -Oz 会拖慢光栅化与 shaping，两者都在每帧关键路径上。
+# 见 gui-framework-profile §2.1：先用 -O3 建帧时间基线，再评估这笔交换。
+skia_enable_optimize_size=false
+
+# ---- 暗雷 #1：Linux+clang 下默认 true，raw_ptr 会被注入所有 Skia target ----
+skia_use_partition_alloc=false
+
+# ---- 暗雷 #1b：is_official_build=true 会把下面这些统统翻成 true ----
+# 一旦为 true，对应第三方库改用系统库，产物退化成"薄 libskia.a + 一堆外部依赖"。
+# 全部关掉后它们被编译进 libskia.a，消费方一个都不用链。
+# 注意 skia_use_system_freetype2 即使不开 official build 在桌面上也默认 true。
+skia_use_system_zlib=false
+skia_use_system_expat=false
+skia_use_system_icu=false
+skia_use_system_libpng=false
+skia_use_system_libwebp=false
+skia_use_system_libjpeg_turbo=false
+skia_use_system_harfbuzz=false
+skia_use_system_freetype2=false
+
+# ---- 渲染后端 ----
+skia_enable_ganesh=true
+skia_use_gl=true
+skia_enable_graphite=false
+skia_use_dawn=false
+skia_use_vulkan=false
+skia_use_angle=false
+skia_enable_precompile=false
+skia_enable_discrete_gpu=false
+
+# ---- 文本栈 ----
+# libgrapheme 后端自带 icu_bidi 子集：grapheme / 断词 / UAX#14 断行 / BiDi 四项全有，
+# 且不需要 icudtl.dat。失去的是分句、locale 敏感大小写、UTF-16 路径、泰语系词典分词。
+skia_use_harfbuzz=true
+skia_enable_skparagraph=true
+skia_use_libgrapheme=true
+skia_use_icu=false
+skia_use_bidi=false
+skia_use_icu4x=false
+skia_use_client_icu=false
+
+# ---- 矢量图标 ----
+# modules/svg 同时依赖 :pathops 与 modules/skresources，
+# 因此 SkPathOps 与 libskresources 由它带入（见 gui-framework-profile §3.4）。
+skia_enable_svg=true
+skia_use_expat=true
+
+# ---- 图像 ----
+skia_use_libpng_decode=true
+skia_use_libpng_encode=true
+skia_use_libjpeg_turbo_decode=true
+skia_use_libjpeg_turbo_encode=true
+skia_use_libwebp_decode=true
+skia_use_libwebp_encode=true
+skia_use_wuffs=true
+
+# ---- 减法 ----
+skia_enable_skottie=false
+skia_enable_pdf=false
+skia_use_xps=false
+skia_use_dng_sdk=false
+skia_use_piex=false
+skia_use_perfetto=false
+skia_use_libavif=false
+skia_use_crabbyavif=false
+skia_use_libjxl_decode=false
+skia_use_fontations=false
+skia_use_lua=false
+skia_use_ffmpeg=false

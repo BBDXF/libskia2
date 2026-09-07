@@ -1,0 +1,11 @@
+# libskia2 的 Skia 源固定点
+#
+# 改这里就等于换 Skia 版本。CI 会校验 checkout 出来的 SHA 与此处一致，
+# 不一致直接失败 —— 构建可复现的前提。
+#
+# 查看当前分支最新 commit：
+#   git ls-remote https://chromium.googlesource.com/skia refs/heads/chrome/m153
+
+SKIA_REPO=https://chromium.googlesource.com/skia
+SKIA_REF=chrome/m153
+SKIA_COMMIT=4f574af2444846ceca4d277a8095c5d4229d175f

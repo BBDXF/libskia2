@@ -1,0 +1,11 @@
+# Skia 源码与构建产物，由 scripts/libskia2.py sync 拉取
+/externals/
+
+# 打包输出
+/dist/
+
+# 本地构建目录
+/build/
+
+__pycache__/
+*.pyc

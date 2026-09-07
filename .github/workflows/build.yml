@@ -1,0 +1,183 @@
+name: build
+
+# 手动触发或打 tag。Skia 全量构建单平台 40-60 分钟，不适合挂在每次 push 上。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号，如 0.1.0。留空则用 0.0.0-dev.<run_number>'
+        required: false
+        default: ''
+      dry_run:
+        description: '只产出 workflow artifact，不建 Release'
+        type: boolean
+        required: false
+        default: false
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            runner: ubuntu-latest
+          - target: windows-x64-msvc
+            runner: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Skia 源码 + DEPS + 构建产物合计十几 GB，默认 runner 装不下。
+      - name: 清理磁盘空间 (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+          df -h /
+
+      # fontconfig 是 Skia 唯一不 vendor 的依赖，构建期和链接期都要它的开发头。
+      - name: 安装构建依赖 (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang ninja-build libfontconfig1-dev
+          clang --version
+
+      - name: 确定版本号
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            v="${GITHUB_REF_NAME#v}"
+          elif [ -n "${{ inputs.version }}" ]; then
+            v="${{ inputs.version }}"
+          else
+            v="0.0.0-dev.${{ github.run_number }}"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "版本号: $v"
+
+      - name: 取回 Skia 与依赖
+        run: python scripts/libskia2.py sync --target ${{ matrix.target }}
+
+      - name: 配置 (gn gen)
+        run: python scripts/libskia2.py gen --target ${{ matrix.target }}
+
+      # 产物清单在这一步硬校验，缺任何一个静态库即失败。
+      - name: 构建 (ninja)
+        run: python scripts/libskia2.py build --target ${{ matrix.target }}
+
+      - name: 打包
+        env:
+          LIBSKIA2_VERSION: ${{ steps.ver.outputs.version }}
+        run: python scripts/libskia2.py package --target ${{ matrix.target }}
+
+      # 验证闸门：拿刚打出来的包，按消费方的方式 find_package + 链接 + 实跑。
+      # 这里覆盖 grapheme / CJK 断行 / 词边界 / BiDi —— 即 libgrapheme 方案是否够用。
+      - name: 冒烟测试
+        shell: bash
+        env:
+          LIBSKIA2_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          pkg="$PWD/dist/libskia2-${LIBSKIA2_VERSION}-${{ matrix.target }}"
+          cmake -S tests/smoke -B build/smoke -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_PREFIX_PATH="$pkg"
+          cmake --build build/smoke
+          ./build/smoke/libskia2_smoke "$PWD/dist/smoke-${{ matrix.target }}.png" \
+            || ./build/smoke/Release/libskia2_smoke.exe "$PWD/dist/smoke-${{ matrix.target }}.png"
+
+      - name: 报告体积
+        shell: bash
+        run: |
+          echo "### ${{ matrix.target }} 体积" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          ls -lh dist/*.tar.gz >> "$GITHUB_STEP_SUMMARY"
+          echo "--- 静态库 ---" >> "$GITHUB_STEP_SUMMARY"
+          ls -lh externals/skia/out/${{ matrix.target }}/*.a \
+                 externals/skia/out/${{ matrix.target }}/*.lib 2>/dev/null \
+            >> "$GITHUB_STEP_SUMMARY" || true
+          echo "--- 冒烟测试二进制（链接后的真实体积基线）---" >> "$GITHUB_STEP_SUMMARY"
+          find build/smoke -name 'libskia2_smoke*' -type f -exec ls -lh {} \; \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libskia2-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+            dist/smoke-*.png
+          retention-days: 14
+
+  release:
+    name: 发布 Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ !inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: 确定版本号
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            v="${GITHUB_REF_NAME#v}"
+          elif [ -n "${{ inputs.version }}" ]; then
+            v="${{ inputs.version }}"
+          else
+            v="0.0.0-dev.${{ github.run_number }}"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: 创建并上传 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          skia_commit=$(grep '^SKIA_COMMIT=' config/skia.pin | cut -d= -f2)
+          skia_ref=$(grep '^SKIA_REF=' config/skia.pin | cut -d= -f2)
+          {
+            echo "预编译的定制 Skia 静态库，面向自绘 GUI 框架。"
+            echo
+            echo "- Skia: \`$skia_ref\` @ \`$skia_commit\`"
+            echo "- 文本栈: skparagraph + skshaper + libgrapheme（无 icudtl.dat 依赖）"
+            echo "- 已关闭: PDF / XPS / RAW / Skottie / Graphite / Vulkan / AVIF"
+            echo "- 完整 gn args 见每个包内的 \`key.txt\`"
+            echo
+            echo '## 使用'
+            echo '```cmake'
+            echo 'find_package(skia2 REQUIRED)'
+            echo 'target_link_libraries(my_gui PRIVATE skia2::skia2)'
+            echo '```'
+            echo "解压后把包目录传给 \`-DCMAKE_PREFIX_PATH\` 即可。"
+          } > notes.md
+
+          gh release create "v${VERSION}" \
+            --title "libskia2 v${VERSION}" \
+            --notes-file notes.md \
+            artifacts/*.tar.gz artifacts/*.sha256 \
+            || gh release upload "v${VERSION}" \
+                 artifacts/*.tar.gz artifacts/*.sha256 --clobber
