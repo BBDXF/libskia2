@@ -66,9 +66,15 @@ else()
   find_package(Threads REQUIRED)
   # fontconfig 是唯一逃不掉的外部依赖 —— Skia 从不 vendor 它
   # （third_party/BUILD.gn 里只有 libs=["fontconfig"]）。
+  # 头文件同样必须有：include/ports/SkFontMgr_fontconfig.h 里
+  # #include <fontconfig/fontconfig.h>。这里一并 find_path，
+  # 否则缺头文件时报错会发生在编译期的 Skia 头文件深处，很难定位。
   find_library(SKIA2_FONTCONFIG_LIBRARY NAMES fontconfig REQUIRED)
+  find_path(SKIA2_FONTCONFIG_INCLUDE_DIR fontconfig/fontconfig.h REQUIRED)
   set_property(TARGET skia2::skia APPEND PROPERTY INTERFACE_LINK_LIBRARIES
                "${SKIA2_FONTCONFIG_LIBRARY}" Threads::Threads ${CMAKE_DL_LIBS} m)
+  set_property(TARGET skia2::skia APPEND PROPERTY INTERFACE_INCLUDE_DIRECTORIES
+               "${SKIA2_FONTCONFIG_INCLUDE_DIR}")
 endif()
 
 add_library(skia2::skia2 INTERFACE IMPORTED)

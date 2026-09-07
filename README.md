@@ -29,6 +29,31 @@
 
 理由与实测依据见 [GUI 框架配置档](doc/gui-framework-profile.md)。
 
+## 实测基线（v0.1.0）
+
+冒烟测试在两个平台各 11 项断言全通过。**关键的三条验证了 libgrapheme 能替掉完整 ICU**：
+
+```
+unicode.grapheme.zwj    PASS   期望 1 簇，实得 1      ZWJ 家族 emoji
+unicode.lineBreak.cjk   PASS   软断点数 18            UAX#14 中文断行
+unicode.bidi            PASS   区段数 3，含 RTL: 是   自带 icu_bidi 子集
+```
+
+| | linux-x64 | windows-x64-msvc |
+|---|---|---|
+| `libskia` | 23 M | 40 M |
+| `libskshaper` | 8.4 M | 17 M |
+| `libsvg` | 8.4 M | 13 M |
+| `libskunicode_libgrapheme` | 938 K | 1.1 M |
+| `libskparagraph` | 581 K | 1.7 M |
+| `libskresources` | 46 K | 116 K |
+| `libskunicode_core` | 23 K | 29 K |
+| **发布包 tar.gz** | **15.1 MiB** | **21.5 MiB** |
+| **链接后可执行文件** | **6.4 M** | **5.0 M** |
+
+最后一行才是有意义的体积指标。注意 Windows 的静态库明显更大，链接后的二进制反而更小——
+`.a` / `.lib` 里含大量未被引用的 section 与元数据，拿它衡量体积没有意义。
+
 ## 消费方怎么用
 
 解压 release 里的 tarball，把包目录传给 `CMAKE_PREFIX_PATH`：
@@ -99,7 +124,7 @@ CI 里是发版的闸门，验证的不是"能编过"，而是配置选择是否
 任何一条不过，说明 libgrapheme 文本方案不够用，需要回退到完整 ICU
 （`skia_use_icu=true` + `skia_use_libgrapheme=false`，代价见配置档 §4）。
 
-CI 还会把 tarball 体积、各静态库体积、以及**冒烟测试二进制的体积**
+CI 会把 tarball 体积、各静态库体积、以及**冒烟测试二进制的体积**
 写进 workflow summary。最后一项才是有意义的体积基线——`.a` 的大小含大量未引用 section。
 
 ## 已知的尖锐边缘
